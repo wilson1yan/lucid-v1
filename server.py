@@ -24,7 +24,7 @@ async def cors_middleware(request, handler):
     response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'  # Define allowed methods
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'  # Allow required headers
     return response
-    
+
 ROOT = os.path.dirname(__file__)
 
 logger = logging.getLogger("pc")
@@ -35,7 +35,7 @@ relay = MediaRelay()
 VIDEO_PTIME = 1 / 20  # 30fps
 VIDEO_TIME_BASE = fractions.Fraction(1, VIDEO_CLOCK_RATE)
 def get_fake_frame():
-    # 
+    #
 
     v = np.zeros((360, 640, 3), dtype=np.uint8)#+255
     v[:, :, 0] = 255
@@ -49,10 +49,10 @@ class VideoTransformTrack(VideoStreamTrack):
 
     def __init__(self, pc_id, generate_frame_fn):
         super().__init__()  # don't forget this!
-    
+
         self.pc_id = pc_id
         self.generate_frame_fn = generate_frame_fn
-    
+
     async def next_timestamp(self):
         if self.readyState != "live":
             raise ValueError("Invalid state")
@@ -69,7 +69,7 @@ class VideoTransformTrack(VideoStreamTrack):
     async def recv(self):
         while self.pc_id not in pc_states:
             await asyncio.sleep(0.1)
-        actions = pc_states.get(self.pc_id,  None) 
+        actions = pc_states.get(self.pc_id,  None)
         # start_time = time.time()
         if self.preparing:
             img = get_fake_frame()
@@ -85,7 +85,7 @@ class VideoTransformTrack(VideoStreamTrack):
 
         pts, time_base = await self.next_timestamp()
         img = self.generate_frame_fn(actions) #(H, W, 3)
-        
+
         frame = VideoFrame.from_ndarray(img, format="bgr24")
         frame.pts = pts
         frame.time_base = time_base
@@ -164,7 +164,7 @@ async def offer(request, diffuser_handle):
             content_type="application/json",
             text=json.dumps({"error": "Another user is currently connected. Please try again later."})
         )
-    
+
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
     pc = RTCPeerConnection()
     pc_id = "PeerConnection(%s)" % uuid.uuid4()
@@ -189,15 +189,15 @@ async def offer(request, diffuser_handle):
                 if message == "end":
                     end_stream()
                     asyncio.ensure_future(pc.close())
-                    
+
                     pcs.discard(pc)
                 else:
                     message = json.loads(message)
                     action_vector = construct_action_vector(message)
-                    
+
                     pc_states[pc_id] =action_vector#(message["act_id"]) #action_vector
 
-                    
+
 
     timeout_task = None
 
@@ -211,7 +211,7 @@ async def offer(request, diffuser_handle):
         if pc.connectionState == "connecting":
             if timeout_task is None:
                 timeout_task = asyncio.create_task(connection_timeout(pc))
-        
+
         # If connected, cancel the timeout
         elif pc.connectionState == "connected":
             if timeout_task:
@@ -225,9 +225,9 @@ async def offer(request, diffuser_handle):
             pcs.discard(pc)
 
     async def connection_timeout(pc):
-        await asyncio.sleep(10)
+        await asyncio.sleep(120)
         if pc.connectionState == "connecting":
-            log_info("Connection stuck in 'connecting' for over 10 seconds. Closing.")
+            log_info("Connection stuck in 'connecting' for over 120 seconds. Closing.")
             end_stream()
             await pc.close()
             pcs.discard(pc)
@@ -238,7 +238,7 @@ async def offer(request, diffuser_handle):
         pcs.discard(pc)
 
     end_last_peer = end_the_peer
-    
+
 
     sendable_stream = VideoTransformTrack(pc_id, diffuse_step_fn)
     sender = pc.addTrack(sendable_stream)
@@ -330,7 +330,7 @@ class StrawfelServer():
 
 def start_background_loop(loop: asyncio.AbstractEventLoop, strwfl: StrawfelServer) -> None:
     asyncio.set_event_loop(loop)
-    
+
     asyncio.run(strwfl.start())
     loop.run_forever()
 

@@ -5,7 +5,7 @@ import click
 import jax
 from functools import partial
 import cv2
-import numpy as np  
+import numpy as np
 from tqdm import tqdm
 import glob
 import pickle
@@ -85,7 +85,7 @@ def setup_vae(is_encode=False):
     vae_model = VQVAE(vae_model_config, True)
     if is_encode:
         return vae_model, vae_params
-        
+
     @partial(jax.jit, backend="cuda")
     def decode_latents(latents):
         pixels = vae_model.apply({"params":vae_params}, latents, method=vae_model.decode)
@@ -142,9 +142,9 @@ def sample_step(model, steps, latents, noised_context, context_time_step, action
     for i in range(steps, 0, -1):
         t = jnp.array([i / steps])
         rng, step_rng = jax.random.split(rng)
-        
+
         model_input = jnp.concatenate([noised_context, latents], axis=1) # (B, T, H, W, D)
-        
+
         _t = jnp.concatenate([context_time_step, jnp.ones((context_time_step.shape[0], 1)) * t], axis=1)
 
         if first_loop:
@@ -164,6 +164,7 @@ def sample_step(model, steps, latents, noised_context, context_time_step, action
 def diffusion_handle(decode_latents, SAMPLING_STEPS, PAST_CONTEXT_NOISE_STEPS, MAP_ID):
     context_frames, _actions = get_validation_samples(MAP_ID)
     context_frames, actions = context_frames[0, :CONTEXT_LENGTH], _actions[0, :CONTEXT_LENGTH]
+    single_action = actions[0].copy()
 
     context_frames = jnp.array(context_frames)
     past_actions = jnp.array(actions)
@@ -172,23 +173,24 @@ def diffusion_handle(decode_latents, SAMPLING_STEPS, PAST_CONTEXT_NOISE_STEPS, M
     rng = jax.random.PRNGKey(0)
     eps = jax.random.normal(rng, means.shape)
     context_frames = (means + jnp.exp(logvars * 0.5) * eps) / VAE_SCALE
-    
+
     prgbar = tqdm(desc=f"Sampling frames steps={SAMPLING_STEPS}, noise std: {PAST_CONTEXT_NOISE_STEPS}", position=1)
 
     def step(model,  action_took: np.ndarray):
         nonlocal context_frames, past_actions, rng
-        
+        action_took = single_action
+
         latent_shape = (1, 1, VAE_HEIGHT, VAE_WIDTH, LATENT_DIM)
         latents = jax.random.normal(rng, latent_shape)
-        
+
         context_time_step = jnp.ones((1, CONTEXT_LENGTH - 1)) * PAST_CONTEXT_NOISE_STEPS
         context_noise = jax.random.normal(rng, context_frames[1:].shape)
         noised_context = interpolate(context_frames[1:], context_noise, context_time_step[0])[None, ...]
-        
+
         actions = jnp.concatenate([past_actions[1:], action_took[None, ...]], axis=0)[None, ...] # (B, T, 5)
-        
+
         rng, latents = sample_step(model, SAMPLING_STEPS, latents, noised_context, context_time_step, actions, rng)
-        
+
         new_frame_latent = latents[0, 0] * VAE_SCALE
         context_frames = jnp.concatenate([context_frames[1:], latents[0, :]], axis=0)
         past_actions = actions[0]
@@ -196,8 +198,8 @@ def diffusion_handle(decode_latents, SAMPLING_STEPS, PAST_CONTEXT_NOISE_STEPS, M
         pixels = decode_latents(new_frame_latent[None, ...])
         pixels = jnp.clip(pixels, 0, 1)
         pixels = (pixels[0] * 255)[:, :, ::-1].astype(jnp.uint8)
-        
-        prgbar.update(1)        
+
+        prgbar.update(1)
 
         pixels_np = np.array(pixels)
         pixels_np = pixels_np[:-24, :, :]
@@ -206,7 +208,7 @@ def diffusion_handle(decode_latents, SAMPLING_STEPS, PAST_CONTEXT_NOISE_STEPS, M
         del new_frame_latent
         del latents
         return pixels_np
-    
+
     return step
 
 
@@ -243,11 +245,16 @@ def main(patch_size, hidden_size, depth, num_heads, mlp_ratio, ctx_dropout_prob,
                 traceback.print_exc()
                 return get_fake_frame()
         return step_handler, end_save_video
-
-    print("Hey there! welcome to the demo, wait for a bit, ignore the coming sampling messages as it's just a warmup")
-    strwfl = start_demo_thingy(diffusion_handler, port)
+    step_handler, _ = diffusion_handler(None, '1802_3200_0')
+    import time
     while True:
-        strwfl.step(lambda *x: x)
+      start = time.time()
+      step_handler(None)
+      print((time.time() - start) * 1000)
+    # print("Hey there! welcome to the demo, wait for a bit, ignore the coming sampling messages as it's just a warmup")
+    # strwfl = start_demo_thingy(diffusion_handler, port)
+    # while True:
+    #     strwfl.step(lambda *x: x)
 
 if __name__ == "__main__":
     main()
